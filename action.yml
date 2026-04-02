@@ -1,0 +1,33 @@
+name: "Spec Compliance Check"
+description: "Enforce spec-linter, injection-scanner, scope, and criteria checks on every PR"
+author: "UnityInFlow"
+
+inputs:
+  github-token:
+    description: "GitHub token for posting PR comments and reading PR files"
+    required: false
+    default: "${{ github.token }}"
+  spec-file:
+    description: "Path to spec file (CLAUDE.md, REQUIREMENTS.md, etc.)"
+    required: false
+    default: "CLAUDE.md"
+  fail-on:
+    description: "When to fail: errors | warnings | never"
+    required: false
+    default: "errors"
+  post-comment:
+    description: "Post compliance report as PR comment"
+    required: false
+    default: "true"
+  injection-scanner-version:
+    description: "injection-scanner version to download"
+    required: false
+    default: "v0.0.1"
+
+runs:
+  using: "node20"
+  main: "dist/index.js"
+
+branding:
+  icon: "shield"
+  color: "blue"

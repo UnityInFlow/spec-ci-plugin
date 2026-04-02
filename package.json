@@ -1,0 +1,44 @@
+{
+  "name": "@unityinflow/spec-ci-plugin",
+  "version": "0.0.0",
+  "description": "Spec compliance CI/CD plugin — enforces spec-linter, injection-scanner, scope, and criteria checks on every PR",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "format": "prettier --check src/ tests/",
+    "format:fix": "prettier --write src/ tests/",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "github-action",
+    "spec",
+    "lint",
+    "ci",
+    "claude-code",
+    "compliance"
+  ],
+  "author": "Jiri Hermann",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/UnityInFlow/spec-ci-plugin.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@actions/core": "^3.0.0",
+    "@actions/github": "^9.0.0",
+    "@octokit/rest": "^22.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "prettier": "^3.8.1",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "project_name": "spec-ci-plugin",
+  "workspace": "04-spec-ci-plugin",
+  "workflow": {
+    "discuss_mode": "discuss",
+    "text_mode": false
+  }
+}
