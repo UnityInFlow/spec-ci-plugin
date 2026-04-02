@@ -1,6 +1,6 @@
 {
   "name": "@unityinflow/spec-ci-plugin",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Spec compliance CI/CD plugin — enforces spec-linter, injection-scanner, scope, and criteria checks on every PR",
   "main": "./dist/index.js",
   "scripts": {
