@@ -14,9 +14,7 @@ export function buildComment(report: ComplianceReport): string {
   // Checks (spec-linter, injection-scanner)
   for (const check of report.checks) {
     lines.push(`### ${check.name}`);
-    lines.push(
-      `${statusIcon(check.status)} **${check.status.toUpperCase()}**`,
-    );
+    lines.push(`${statusIcon(check.status)} **${check.status.toUpperCase()}**`);
     if (check.details.length > 0) {
       for (const detail of check.details) {
         lines.push(`- ${detail}`);
@@ -33,12 +31,8 @@ export function buildComment(report: ComplianceReport): string {
         "\u26a0\ufe0f No scope declared in spec file. Consider adding a `## Scope` section.",
       );
     } else if (report.scopeResult.compliant) {
-      lines.push(
-        "\u2705 All changed files are within spec-declared scope.",
-      );
-      lines.push(
-        `Scope: ${report.scopeResult.declaredScope.join(", ")}`,
-      );
+      lines.push("\u2705 All changed files are within spec-declared scope.");
+      lines.push(`Scope: ${report.scopeResult.declaredScope.join(", ")}`);
     } else {
       lines.push("\u274c Files changed outside declared scope:");
       for (const f of report.scopeResult.outOfScope) {
@@ -66,9 +60,7 @@ export function buildComment(report: ComplianceReport): string {
       }
     }
     lines.push("");
-    lines.push(
-      `**Coverage: ${matched}/${total} criteria matched to tests**`,
-    );
+    lines.push(`**Coverage: ${matched}/${total} criteria matched to tests**`);
     lines.push("");
   }
 

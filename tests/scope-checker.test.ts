@@ -7,27 +7,20 @@ import { readFileSync } from "node:fs";
 
 describe("extractDeclaredScope", () => {
   it("extracts paths from ## Scope section", () => {
-    const content = readFileSync(
-      "tests/fixtures/spec-with-scope.md",
-      "utf-8",
-    );
+    const content = readFileSync("tests/fixtures/spec-with-scope.md", "utf-8");
     const scope = extractDeclaredScope(content);
     expect(scope).toContain("src/auth/");
     expect(scope).toContain("src/dashboard/");
   });
 
   it("returns empty for spec with no scope section", () => {
-    const content = readFileSync(
-      "tests/fixtures/spec-no-scope.md",
-      "utf-8",
-    );
+    const content = readFileSync("tests/fixtures/spec-no-scope.md", "utf-8");
     const scope = extractDeclaredScope(content);
     expect(scope).toHaveLength(0);
   });
 
   it("extracts from GSD <files> tags", () => {
-    const content =
-      "Some text\n<files>src/auth/, src/api/</files>\nMore text";
+    const content = "Some text\n<files>src/auth/, src/api/</files>\nMore text";
     const scope = extractDeclaredScope(content);
     expect(scope).toContain("src/auth/");
     expect(scope).toContain("src/api/");

@@ -15,8 +15,7 @@ export function extractDeclaredScope(specContent: string): string[] {
   }
 
   // Extract from ## Scope section
-  const scopeRegex =
-    /## (?:Scope|Files in scope)\s*\n([\s\S]*?)(?=\n## |$)/i;
+  const scopeRegex = /## (?:Scope|Files in scope)\s*\n([\s\S]*?)(?=\n## |$)/i;
   const scopeMatch = specContent.match(scopeRegex);
   if (scopeMatch) {
     const lines = scopeMatch[1].split("\n");

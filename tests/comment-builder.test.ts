@@ -53,7 +53,9 @@ describe("buildComment", () => {
     };
     const comment = buildComment(report);
     expect(comment).toContain("Scope Compliance");
-    expect(comment).toContain("All changed files are within spec-declared scope");
+    expect(comment).toContain(
+      "All changed files are within spec-declared scope",
+    );
   });
 
   it("renders scope compliance — out of scope files", () => {

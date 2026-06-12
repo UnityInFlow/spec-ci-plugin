@@ -7,9 +7,7 @@ function isExecError(
   return typeof err === "object" && err !== null && "stdout" in err;
 }
 
-export async function runSpecLinter(
-  specFile: string,
-): Promise<CheckResult> {
+export async function runSpecLinter(specFile: string): Promise<CheckResult> {
   try {
     const output = execSync(
       `npx --yes @unityinflow/spec-linter check "${specFile}" --format json`,
@@ -32,8 +30,7 @@ export async function runSpecLinter(
     }
 
     const details = report.results.map(
-      (r) =>
-        `${r.severity === "error" ? "x" : "!"} ${r.message} (${r.ruleId})`,
+      (r) => `${r.severity === "error" ? "x" : "!"} ${r.message} (${r.ruleId})`,
     );
 
     if (report.errorCount > 0) {
@@ -45,8 +42,7 @@ export async function runSpecLinter(
     return { name: "Spec Validation", status: "pass", details };
   } catch (error: unknown) {
     if (!isExecError(error)) {
-      const message =
-        error instanceof Error ? error.message : "unknown error";
+      const message = error instanceof Error ? error.message : "unknown error";
       return {
         name: "Spec Validation",
         status: "fail",

@@ -41,9 +41,7 @@ export async function postOrUpdateComment(
   }
 }
 
-export async function getPrChangedFiles(
-  token: string,
-): Promise<string[]> {
+export async function getPrChangedFiles(token: string): Promise<string[]> {
   const octokit = getOctokit(token);
   const { owner, repo } = context.repo;
   const pullNumber = context.payload.pull_request?.number;

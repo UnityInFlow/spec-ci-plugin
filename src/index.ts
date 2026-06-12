@@ -3,10 +3,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { runSpecLinter } from "./spec-linter.js";
 import { runInjectionScanner } from "./injection-scanner.js";
-import {
-  extractDeclaredScope,
-  checkScopeCompliance,
-} from "./scope-checker.js";
+import { extractDeclaredScope, checkScopeCompliance } from "./scope-checker.js";
 import {
   extractCriteria,
   extractTestDescriptions,
@@ -34,11 +31,7 @@ function findTestFiles(dir: string): Map<string, string[]> {
       const fullPath = join(currentDir, entry);
       const stat = statSync(fullPath);
 
-      if (
-        stat.isDirectory() &&
-        entry !== "node_modules" &&
-        entry !== "dist"
-      ) {
+      if (stat.isDirectory() && entry !== "node_modules" && entry !== "dist") {
         walk(fullPath);
       } else if (entry.match(/\.(test|spec)\.(ts|js|tsx|jsx)$/)) {
         const content = readFileSync(fullPath, "utf-8");
@@ -83,9 +76,7 @@ async function run(): Promise<void> {
     const changedFiles = token ? await getPrChangedFiles(token) : [];
     const declaredScope = extractDeclaredScope(specContent);
     const scopeResult = checkScopeCompliance(declaredScope, changedFiles);
-    core.info(
-      `Scope compliance: ${scopeResult.compliant ? "pass" : "fail"}`,
-    );
+    core.info(`Scope compliance: ${scopeResult.compliant ? "pass" : "fail"}`);
 
     // 4. Criteria check
     const criteria = extractCriteria(specContent);

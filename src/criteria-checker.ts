@@ -1,8 +1,7 @@
 import { CriteriaMatch } from "./types.js";
 
 export function extractCriteria(specContent: string): string[] {
-  const criteriaRegex =
-    /## Acceptance Criteria\s*\n([\s\S]*?)(?=\n## |$)/i;
+  const criteriaRegex = /## Acceptance Criteria\s*\n([\s\S]*?)(?=\n## |$)/i;
   const match = specContent.match(criteriaRegex);
   if (!match) return [];
 

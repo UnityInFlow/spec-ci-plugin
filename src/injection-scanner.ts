@@ -85,8 +85,7 @@ export async function runInjectionScanner(
         const report = reports[0];
         const details =
           report?.matches.map(
-            (m) =>
-              `${m.severity} :${m.line} ${m.message} (${m.pattern_id})`,
+            (m) => `${m.severity} :${m.line} ${m.message} (${m.pattern_id})`,
           ) ?? [];
 
         return {
@@ -99,8 +98,7 @@ export async function runInjectionScanner(
       }
     }
 
-    const message =
-      error instanceof Error ? error.message : "unknown";
+    const message = error instanceof Error ? error.message : "unknown";
 
     return {
       name: "Security Scan",

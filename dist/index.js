@@ -20197,9 +20197,7 @@ function buildComment(report) {
   const lines = [MARKER, "## Spec Compliance Report", ""];
   for (const check of report.checks) {
     lines.push(`### ${check.name}`);
-    lines.push(
-      `${statusIcon(check.status)} **${check.status.toUpperCase()}**`
-    );
+    lines.push(`${statusIcon(check.status)} **${check.status.toUpperCase()}**`);
     if (check.details.length > 0) {
       for (const detail of check.details) {
         lines.push(`- ${detail}`);
@@ -20214,12 +20212,8 @@ function buildComment(report) {
         "\u26A0\uFE0F No scope declared in spec file. Consider adding a `## Scope` section."
       );
     } else if (report.scopeResult.compliant) {
-      lines.push(
-        "\u2705 All changed files are within spec-declared scope."
-      );
-      lines.push(
-        `Scope: ${report.scopeResult.declaredScope.join(", ")}`
-      );
+      lines.push("\u2705 All changed files are within spec-declared scope.");
+      lines.push(`Scope: ${report.scopeResult.declaredScope.join(", ")}`);
     } else {
       lines.push("\u274C Files changed outside declared scope:");
       for (const f of report.scopeResult.outOfScope) {
@@ -20244,9 +20238,7 @@ function buildComment(report) {
       }
     }
     lines.push("");
-    lines.push(
-      `**Coverage: ${matched}/${total} criteria matched to tests**`
-    );
+    lines.push(`**Coverage: ${matched}/${total} criteria matched to tests**`);
     lines.push("");
   }
   lines.push("---");
@@ -24078,9 +24070,7 @@ async function run() {
     const changedFiles = token ? await getPrChangedFiles(token) : [];
     const declaredScope = extractDeclaredScope(specContent);
     const scopeResult = checkScopeCompliance(declaredScope, changedFiles);
-    info(
-      `Scope compliance: ${scopeResult.compliant ? "pass" : "fail"}`
-    );
+    info(`Scope compliance: ${scopeResult.compliant ? "pass" : "fail"}`);
     const criteria = extractCriteria(specContent);
     const testFiles = findTestFiles(".");
     const criteriaMatches = matchCriteria(criteria, testFiles);

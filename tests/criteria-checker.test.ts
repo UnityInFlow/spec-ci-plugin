@@ -31,10 +31,7 @@ describe("matchCriteria", () => {
   it("matches criteria to test descriptions", () => {
     const criteria = ["Users can log in with email"];
     const testFiles = new Map([
-      [
-        "tests/auth.test.ts",
-        ["allows user login with email and password"],
-      ],
+      ["tests/auth.test.ts", ["allows user login with email and password"]],
     ]);
     const matches = matchCriteria(criteria, testFiles);
     expect(matches[0].matched).toBe(true);
@@ -43,9 +40,7 @@ describe("matchCriteria", () => {
 
   it("reports unmatched criteria", () => {
     const criteria = ["Export data as PDF"];
-    const testFiles = new Map([
-      ["tests/auth.test.ts", ["allows user login"]],
-    ]);
+    const testFiles = new Map([["tests/auth.test.ts", ["allows user login"]]]);
     const matches = matchCriteria(criteria, testFiles);
     expect(matches[0].matched).toBe(false);
   });
