@@ -22,7 +22,13 @@ inputs:
   injection-scanner-version:
     description: "injection-scanner version to download"
     required: false
-    default: "v0.0.1"
+    default: "v0.0.2"
+
+outputs:
+  status:
+    description: "Overall compliance status: pass | warn | fail"
+  report:
+    description: "Full compliance report as a JSON string"
 
 runs:
   using: "node20"
