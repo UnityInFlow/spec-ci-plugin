@@ -1,0 +1,46 @@
+# Release-time automation for spec-ci-plugin.
+#
+# Fires ONCE per published release (the human "Publish release" Marketplace
+# click). Its only job is to keep the moving major-version git tag (e.g. `v1`)
+# pointing at the just-published immutable `vX.Y.Z` tag, so consumers can pin
+# `uses: UnityInFlow/spec-ci-plugin@v1`.
+#
+# CRITICAL: `v1` is a PLAIN MOVING GIT TAG ONLY. This workflow must NEVER create
+# a GitHub Release object for `v1` — that would be incompatible with immutable
+# releases. Only the `vX.Y.Z` Release (created by the human via the Releases UI)
+# is a real Release object.
+#
+# Secret-bearing / self-hosted by design: fork PRs cannot fire `release:
+# published`, so the org self-hosted runners are never exposed to untrusted
+# fork code (D-02).
+
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  move-major-tag:
+    # Org self-hosted X64 runners. Fallback to [orangepi] (ARM64) when the
+    # Hetzner X64 fleet is offline — JVM/tag work is arch-independent
+    # (RESEARCH Pitfall 4).
+    runs-on: [arc-runner-unityinflow]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Move major-version tag (vN -> vX.Y.Z)
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF##refs/tags/}"
+          MAJOR="${TAG%%.*}"
+          echo "Published tag: $TAG"
+          echo "Moving major tag: $MAJOR -> $TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -fa "$MAJOR" -m "Update $MAJOR -> $TAG"
+          git push origin "$MAJOR" --force

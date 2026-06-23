@@ -1,3 +1,14 @@
+# Public/fork-PR CI for spec-ci-plugin.
+#
+# DELIBERATE D-02 EXCEPTION: this is the ONE sanctioned use of GitHub-hosted
+# `ubuntu-latest` in the UnityInFlow ecosystem. Because this repo is public and
+# this job is secretless, fork PRs must NEVER reach the org self-hosted runners.
+# Running on GitHub-hosted runners keeps the org runner group's
+# `allows_public_repositories: false` policy intact while still validating fork
+# PRs. This is NOT a violation of the "never ubuntu-latest" rule — it is the
+# explicit Marketplace public-repo carve-out (MKT-04). All secret-bearing work
+# (publish + the v1 tag-mover) lives in release.yml on self-hosted runners.
+
 name: CI
 
 on:
@@ -8,7 +19,10 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: [arc-runner-unityinflow]
+    # D-02 exception (see top-of-file comment): GitHub-hosted, secretless.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
 
@@ -30,3 +44,11 @@ jobs:
 
       - run: npm run build
         name: Build action
+
+      - name: Verify committed dist/ is not stale
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code -- dist/; then
+            echo "::error::dist/ is stale. Run 'npm run build' and commit dist/."
+            exit 1
+          fi
