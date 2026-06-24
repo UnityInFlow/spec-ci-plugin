@@ -1,4 +1,4 @@
-name: "Spec Compliance Check"
+name: "UnityInFlow Spec Compliance"
 description: "Enforce spec-linter, injection-scanner, scope, and criteria checks on every PR"
 author: "UnityInFlow"
 
