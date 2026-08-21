@@ -93,6 +93,19 @@ self-hosted runner pinning `injection-scanner-version` actually changes what run
 Releases before `v0.0.2` are refused: they used a different asset naming scheme and
 published no checksum manifest, so no URL built for them can resolve.
 
+A cache hit does not skip the check. The cache lives in the system temp directory,
+which on a self-hosted runner persists between jobs and is writable by whatever else
+runs there — so the cached file is re-hashed against the manifest on every run, and a
+mismatch discards it and fails. Only the multi-megabyte binary is cached; the manifest
+is a few hundred bytes and is always fetched.
+
+**An unanswered scan is a failure.** If the scanner is present and verified but does not
+return a report this action can read, the result is `fail`, not `warn`. The scanned file
+is written by the party the scan exists to catch, and a large enough report used to
+overflow the subprocess buffer and turn a `fail` into a skipped check. A genuine outage —
+the release being unreachable at all — still warns rather than blocking every pull
+request.
+
 **Suppressions are off by default.** `injection-scanner:ignore` directives live
 *inside the scanned file*, so on a pull request the contributor proposing the change
 also controls what the scanner reports:

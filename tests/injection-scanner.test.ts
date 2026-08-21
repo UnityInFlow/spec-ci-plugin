@@ -1,8 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   DEFAULT_SCANNER_VERSION,
   MIN_SCANNER_VERSION,
@@ -351,10 +357,159 @@ describe("report handling", () => {
   });
 });
 
+describe("cached binaries are re-verified, not trusted", () => {
+  it("refuses a cache entry that does not match the published manifest", async () => {
+    const dir = scratch();
+    const asset = assetNameFor();
+    const cached = cachePathFor("v0.0.2", asset, dir);
+    mkdirSync(dirname(cached), { recursive: true });
+    writeFileSync(cached, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+    const genuine = "#!/bin/sh\necho genuine\n";
+    const digest = createHash("sha256").update(genuine).digest("hex");
+    const result = await runInjectionScanner("spec.md", "v0.0.2", {
+      cacheDir: dir,
+      fetchImpl: fakeFetch({
+        [asset]: genuine,
+        "SHA256SUMS.txt": `${digest}  ${asset}\n`,
+      }),
+    });
+
+    expect(result.status).toBe("fail");
+    expect(result.details.join(" ")).toMatch(/checksum/i);
+    expect(existsSync(cached)).toBe(false);
+  });
+
+  it("reuses a verified cache entry without re-downloading the binary", async () => {
+    const dir = scratch();
+    const asset = assetNameFor();
+    const body = "#!/bin/sh\nexit 0\n";
+    const digest = createHash("sha256").update(body).digest("hex");
+    const manifest = `${digest}  ${asset}\n`;
+
+    const first = countingFetch({ [asset]: body, "SHA256SUMS.txt": manifest });
+    await downloadScanner("v0.0.2", { cacheDir: dir, fetchImpl: first.impl });
+    expect(first.requested).toContain(asset);
+
+    const second = countingFetch({ [asset]: body, "SHA256SUMS.txt": manifest });
+    const path = await downloadScanner("v0.0.2", {
+      cacheDir: dir,
+      fetchImpl: second.impl,
+    });
+    expect(path).toBe(cachePathFor("v0.0.2", asset, dir));
+    expect(second.requested).toEqual(["SHA256SUMS.txt"]);
+  });
+});
+
+describe("an unanswered scan is a failure, not a warning", () => {
+  it("fails when the scanner produces output it cannot parse", async () => {
+    const dir = scratch();
+    const { path } = fakeScanner(dir, {
+      emitsNoSuppressInHelp: true,
+      stdout: "not json at all",
+      exitCode: 1,
+    });
+    const result = await runInjectionScanner(
+      "spec.md",
+      DEFAULT_SCANNER_VERSION,
+      {
+        binaryPath: path,
+      },
+    );
+    expect(result.status).toBe("fail");
+  });
+
+  it("parses a report far larger than Node's default pipe buffer", async () => {
+    const dir = scratch();
+    const matches = Array.from({ length: 20_000 }, (_, line) => ({
+      severity: "CRITICAL",
+      message: "Attempts to override agent instructions",
+      pattern_id: "PI001",
+      line,
+    }));
+    const { path } = fakeScanner(dir, {
+      emitsNoSuppressInHelp: true,
+      exitCode: 1,
+      stdout: JSON.stringify([
+        {
+          file: "spec.md",
+          matches,
+          critical_count: matches.length,
+          high_count: 0,
+        },
+      ]),
+    });
+    const result = await runInjectionScanner(
+      "spec.md",
+      DEFAULT_SCANNER_VERSION,
+      {
+        binaryPath: path,
+      },
+    );
+    expect(result.status).toBe("fail");
+    expect(result.details.length).toBeGreaterThan(19_000);
+  });
+});
+
+describe("suppressed findings stay visible in the report", () => {
+  it("does not claim a clean scan when findings were suppressed in-file", async () => {
+    const dir = scratch();
+    const { path } = fakeScanner(dir, {
+      emitsNoSuppressInHelp: true,
+      stdout: JSON.stringify([
+        {
+          file: "spec.md",
+          matches: [],
+          // The real shape injection-scanner #55 emits: thinner than a
+          // reported match, with no `message`, `pattern_name` or `remediation`.
+          suppressed: [
+            {
+              pattern_id: "PI001",
+              severity: "CRITICAL",
+              file: "spec.md",
+              line: 6,
+            },
+          ],
+          critical_count: 0,
+          high_count: 0,
+        },
+      ]),
+    });
+    const result = await runInjectionScanner(
+      "spec.md",
+      DEFAULT_SCANNER_VERSION,
+      {
+        binaryPath: path,
+        allowSuppressions: true,
+      },
+    );
+    const text = result.details.join(" ");
+    expect(text).not.toMatch(/No injection patterns detected/);
+    expect(text).toMatch(/suppress/i);
+    expect(text).toContain("PI001");
+    expect(text).not.toContain("undefined");
+  });
+});
+
 function mkdirTemp(name: string): string {
   const dir = join(scratch(), name);
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/** Records which asset basenames a run actually requested. */
+function countingFetch(assets: Record<string, string>): {
+  impl: typeof fetch;
+  requested: string[];
+} {
+  const requested: string[] = [];
+  const inner = fakeFetch(assets);
+  const impl = (async (input: string | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    requested.push(url.split("/").pop() ?? "");
+    return inner(input as string, init);
+  }) as unknown as typeof fetch;
+  return { impl, requested };
 }
 
 /** Minimal `fetch` stand-in serving a fixed set of release assets by basename. */

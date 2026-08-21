@@ -20024,6 +20024,7 @@ var RELEASE_BASE = "https://github.com/UnityInFlow/injection-scanner/releases/do
 var CHECKSUM_MANIFEST = "SHA256SUMS.txt";
 var BINARY_NAME = "injection-scanner";
 var DOWNLOAD_TIMEOUT_MS = 6e4;
+var MAX_REPORT_BYTES = 128 * 1024 * 1024;
 var ScannerSetupError = class extends Error {
 };
 function isExecError2(err) {
@@ -20082,19 +20083,24 @@ async function downloadScanner(version, options = {}) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const asset = assetNameFor();
   const cached = cachePathFor(version, asset, options.cacheDir);
-  if ((0, import_node_fs.existsSync)(cached)) return cached;
-  const [binary, manifest] = await Promise.all([
-    fetchAsset(fetchImpl, version, asset),
-    fetchAsset(fetchImpl, version, CHECKSUM_MANIFEST).then(
-      (buf) => buf.toString("utf-8")
-    )
-  ]);
+  const manifest = await fetchAsset(fetchImpl, version, CHECKSUM_MANIFEST).then(
+    (buf) => buf.toString("utf-8")
+  );
   const expected = parseChecksums(manifest).get(asset);
   if (!expected) {
     throw new ScannerSetupError(
       `${CHECKSUM_MANIFEST} for ${version} does not list ${asset}; refusing to run an unverifiable binary.`
     );
   }
+  if ((0, import_node_fs.existsSync)(cached)) {
+    const onDisk = (0, import_node_crypto.createHash)("sha256").update((0, import_node_fs.readFileSync)(cached)).digest("hex");
+    if (onDisk === expected) return cached;
+    (0, import_node_fs.rmSync)(cached, { force: true });
+    throw new ScannerSetupError(
+      `checksum mismatch for the cached ${asset} at ${version}: ${CHECKSUM_MANIFEST} says ${expected}, the cached file hashes to ${onDisk}. The cache entry has been discarded; refusing to execute it.`
+    );
+  }
+  const binary = await fetchAsset(fetchImpl, version, asset);
   const actual = (0, import_node_crypto.createHash)("sha256").update(binary).digest("hex");
   if (actual !== expected) {
     throw new ScannerSetupError(
@@ -20130,10 +20136,21 @@ function supportsNoSuppress(binaryPath) {
   noSuppressSupport.set(binaryPath, supported);
   return supported;
 }
+function describe(finding) {
+  return `${finding.severity} :${finding.line} ${finding.message} (${finding.pattern_id})`;
+}
 function toDetails(report) {
-  return report?.matches.map(
-    (m) => `${m.severity} :${m.line} ${m.message} (${m.pattern_id})`
-  ) ?? [];
+  return report?.matches.map(describe) ?? [];
+}
+function suppressedNotes(report) {
+  const suppressed = report?.suppressed ?? [];
+  if (suppressed.length === 0) return [];
+  return [
+    `${suppressed.length} finding(s) suppressed by directives inside the scanned file:`,
+    ...suppressed.map(
+      (finding) => `  suppressed ${finding.severity} :${finding.line} ${finding.message ?? "withheld by an in-file directive"} (${finding.pattern_id})`
+    )
+  ];
 }
 async function runInjectionScanner(specFile, version = DEFAULT_SCANNER_VERSION, options = {}) {
   let binaryPath;
@@ -20161,21 +20178,23 @@ async function runInjectionScanner(specFile, version = DEFAULT_SCANNER_VERSION, 
   try {
     const output = (0, import_node_child_process2.execFileSync)(binaryPath, args, {
       encoding: "utf-8",
-      timeout: 1e4
+      timeout: 1e4,
+      maxBuffer: MAX_REPORT_BYTES
     });
     const reports = JSON.parse(output);
     const report = reports[0];
+    const withheld = suppressedNotes(report);
     if (!report || report.matches.length === 0) {
       return {
         name: "Security Scan",
         status: "pass",
-        details: [...notes, "No injection patterns detected"]
+        details: withheld.length > 0 ? [...notes, ...withheld] : [...notes, "No injection patterns detected"]
       };
     }
     return {
       name: "Security Scan",
       status: report.critical_count > 0 ? "fail" : "warn",
-      details: [...notes, ...toDetails(report)]
+      details: [...notes, ...toDetails(report), ...withheld]
     };
   } catch (error2) {
     if (isExecError2(error2) && error2.stdout) {
@@ -20185,7 +20204,7 @@ async function runInjectionScanner(specFile, version = DEFAULT_SCANNER_VERSION, 
         return {
           name: "Security Scan",
           status: (report?.critical_count ?? 0) > 0 ? "fail" : "warn",
-          details: [...notes, ...toDetails(report)]
+          details: [...notes, ...toDetails(report), ...suppressedNotes(report)]
         };
       } catch {
       }
@@ -20193,8 +20212,11 @@ async function runInjectionScanner(specFile, version = DEFAULT_SCANNER_VERSION, 
     const message = error2 instanceof Error ? error2.message : "unknown";
     return {
       name: "Security Scan",
-      status: "warn",
-      details: [...notes, `Could not run injection-scanner: ${message}`]
+      status: "fail",
+      details: [
+        ...notes,
+        `injection-scanner produced no usable report: ${message}. Treating this as a failure \u2014 the scanned file is untrusted, so an unanswered scan is not a pass.`
+      ]
     };
   }
 }
