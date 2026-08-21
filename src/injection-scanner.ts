@@ -1,7 +1,81 @@
-import { execSync, execFileSync } from "node:child_process";
-import { existsSync, chmodSync } from "node:fs";
-import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { CheckResult } from "./types.js";
+
+/**
+ * The single source of truth for which injection-scanner release this Action
+ * runs. `action.yml` and the README both restate it for documentation; a test
+ * pins all three together, because they had silently drifted apart
+ * (`action.yml` said v0.0.2, the code said v0.0.1) and the older default built
+ * a URL that could not exist.
+ */
+export const DEFAULT_SCANNER_VERSION = "v0.0.2";
+
+/**
+ * The oldest release this Action can consume.
+ *
+ * v0.0.1 published `injection-scanner-linux-x86_64` and no checksum manifest;
+ * v0.0.2 switched to target triples (`injection-scanner-x86_64-unknown-linux-musl`)
+ * and added `SHA256SUMS.txt`. Every URL we build for an older tag 404s, so
+ * pinning one is refused loudly rather than degraded into "scanner unavailable".
+ */
+export const MIN_SCANNER_VERSION = "v0.0.2";
+
+const RELEASE_BASE =
+  "https://github.com/UnityInFlow/injection-scanner/releases/download";
+const CHECKSUM_MANIFEST = "SHA256SUMS.txt";
+const BINARY_NAME = "injection-scanner";
+const DOWNLOAD_TIMEOUT_MS = 60_000;
+
+/**
+ * Raised when the scanner cannot be obtained *for a reason that will not fix
+ * itself* — a bad pin, or bytes that do not match the published digest. These
+ * fail the check. A transient network error is different: it warns.
+ */
+export class ScannerSetupError extends Error {}
+
+export interface DownloadOptions {
+  /** Root of the binary cache. Defaults to the system temp directory. */
+  cacheDir?: string;
+  /** Injectable `fetch`, for tests. */
+  fetchImpl?: typeof fetch;
+}
+
+export interface InjectionScannerOptions extends DownloadOptions {
+  /**
+   * Honour `injection-scanner:ignore` directives found inside the scanned file.
+   *
+   * Off by default. This Action scans pull requests, so the author of the
+   * scanned file is the same person the scan is meant to catch — a contributor
+   * can add `injection-scanner:ignore-file PI001` in the same PR that adds the
+   * payload and walk straight through the gate.
+   */
+  allowSuppressions?: boolean;
+  /** Use an already-present binary instead of downloading one. */
+  binaryPath?: string;
+}
+
+interface ScannerReport {
+  matches: Array<{
+    severity: string;
+    message: string;
+    pattern_id: string;
+    line: number;
+  }>;
+  critical_count: number;
+  high_count?: number;
+}
 
 function isExecError(
   err: unknown,
@@ -9,92 +83,246 @@ function isExecError(
   return typeof err === "object" && err !== null && "stdout" in err;
 }
 
-function downloadScanner(version: string): string {
-  const platform =
-    process.platform === "darwin" ? "apple-darwin" : "unknown-linux-musl";
-  const arch = process.arch === "arm64" ? "aarch64" : "x86_64";
-  const binaryName = "injection-scanner";
-  const downloadPath = join("/tmp", binaryName);
+/**
+ * Reject anything that is not a release tag before it reaches a URL or a
+ * filesystem path, and anything older than the asset-naming change.
+ */
+export function assertSupportedVersion(version: string): void {
+  const parsed = version.match(
+    /^v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$/,
+  );
+  if (!parsed) {
+    throw new ScannerSetupError(
+      `injection-scanner-version "${version}" is not a release tag (expected vMAJOR.MINOR.PATCH).`,
+    );
+  }
 
-  if (existsSync(downloadPath)) return downloadPath;
+  const requested = [Number(parsed[1]), Number(parsed[2]), Number(parsed[3])];
+  const minimum = MIN_SCANNER_VERSION.replace(/^v/, "").split(".").map(Number);
 
-  const url = `https://github.com/UnityInFlow/injection-scanner/releases/download/${version}/${binaryName}-${arch}-${platform}`;
+  for (let i = 0; i < 3; i++) {
+    if (requested[i] > minimum[i]) return;
+    if (requested[i] < minimum[i]) {
+      throw new ScannerSetupError(
+        `injection-scanner ${version} is not supported: releases before ` +
+          `${MIN_SCANNER_VERSION} used a different asset naming scheme and published ` +
+          `no ${CHECKSUM_MANIFEST}. Pin ${MIN_SCANNER_VERSION} or later.`,
+      );
+    }
+  }
+}
 
-  execSync(`curl -fsSL -o "${downloadPath}" "${url}"`, { timeout: 30000 });
-  chmodSync(downloadPath, 0o755);
+/** The release asset for a platform/arch pair, using the v0.0.2+ triple names. */
+export function assetNameFor(
+  platform: string = process.platform,
+  arch: string = process.arch,
+): string {
+  const os = platform === "darwin" ? "apple-darwin" : "unknown-linux-musl";
+  const cpu = arch === "arm64" ? "aarch64" : "x86_64";
+  return `${BINARY_NAME}-${cpu}-${os}`;
+}
 
-  return downloadPath;
+/**
+ * Where a given version's binary is cached.
+ *
+ * The version and the target triple are both in the path on purpose. The old
+ * path was a bare `/tmp/injection-scanner`, and on a self-hosted runner `/tmp`
+ * survives between jobs — so the first binary ever downloaded was executed
+ * forever and pinning a version did nothing.
+ */
+export function cachePathFor(
+  version: string,
+  asset: string,
+  cacheDir: string = tmpdir(),
+): string {
+  return join(cacheDir, "unityinflow-injection-scanner", version, asset);
+}
+
+/** Parse the `sha256sum`-format manifest published with each release. */
+export function parseChecksums(manifest: string): Map<string, string> {
+  const sums = new Map<string, string>();
+  for (const line of manifest.split("\n")) {
+    const entry = line.trim().match(/^([0-9a-fA-F]{64})\s+\*?(\S+)$/);
+    if (entry) sums.set(entry[2], entry[1].toLowerCase());
+  }
+  return sums;
+}
+
+async function fetchAsset(
+  fetchImpl: typeof fetch,
+  version: string,
+  name: string,
+): Promise<Buffer> {
+  const url = `${RELEASE_BASE}/${version}/${name}`;
+  const response = await fetchImpl(url, {
+    signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `GET ${url} returned ${response.status} ${response.statusText}`,
+    );
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+
+/**
+ * Download the scanner for this platform, verify it against the release's
+ * published SHA256, and cache it under a version-keyed path.
+ *
+ * The bytes are hashed *before* they are made executable, and are only moved
+ * into the cache path once they verify — so a failed or tampered download can
+ * never be picked up by a later run as a valid cache hit.
+ */
+export async function downloadScanner(
+  version: string,
+  options: DownloadOptions = {},
+): Promise<string> {
+  assertSupportedVersion(version);
+
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const asset = assetNameFor();
+  const cached = cachePathFor(version, asset, options.cacheDir);
+  if (existsSync(cached)) return cached;
+
+  const [binary, manifest] = await Promise.all([
+    fetchAsset(fetchImpl, version, asset),
+    fetchAsset(fetchImpl, version, CHECKSUM_MANIFEST).then((buf) =>
+      buf.toString("utf-8"),
+    ),
+  ]);
+
+  const expected = parseChecksums(manifest).get(asset);
+  if (!expected) {
+    throw new ScannerSetupError(
+      `${CHECKSUM_MANIFEST} for ${version} does not list ${asset}; refusing to run an unverifiable binary.`,
+    );
+  }
+
+  const actual = createHash("sha256").update(binary).digest("hex");
+  if (actual !== expected) {
+    throw new ScannerSetupError(
+      `checksum mismatch for ${asset} at ${version}: expected ${expected}, got ${actual}. Refusing to execute it.`,
+    );
+  }
+
+  mkdirSync(dirname(cached), { recursive: true });
+  const staging = `${cached}.incoming-${process.pid}`;
+  try {
+    writeFileSync(staging, binary);
+    chmodSync(staging, 0o755);
+    renameSync(staging, cached);
+  } catch (error) {
+    rmSync(staging, { force: true });
+    throw error;
+  }
+
+  return cached;
+}
+
+const noSuppressSupport = new Map<string, boolean>();
+
+/**
+ * Whether this binary understands `--no-suppress` (injection-scanner #55).
+ *
+ * Asked of the binary rather than inferred from the version string, so a repo
+ * pinning an older release degrades with a visible note instead of every scan
+ * dying on an unrecognised argument.
+ */
+export function supportsNoSuppress(binaryPath: string): boolean {
+  const known = noSuppressSupport.get(binaryPath);
+  if (known !== undefined) return known;
+
+  let supported = false;
+  try {
+    const help = execFileSync(binaryPath, ["check", "--help"], {
+      encoding: "utf-8",
+      timeout: 10_000,
+    });
+    supported = help.includes("--no-suppress");
+  } catch {
+    supported = false;
+  }
+
+  noSuppressSupport.set(binaryPath, supported);
+  return supported;
+}
+
+function toDetails(report: ScannerReport | undefined): string[] {
+  return (
+    report?.matches.map(
+      (m) => `${m.severity} :${m.line} ${m.message} (${m.pattern_id})`,
+    ) ?? []
+  );
 }
 
 export async function runInjectionScanner(
   specFile: string,
-  version: string,
+  version: string = DEFAULT_SCANNER_VERSION,
+  options: InjectionScannerOptions = {},
 ): Promise<CheckResult> {
+  let binaryPath: string;
   try {
-    const binaryPath = downloadScanner(version);
-    const output = execFileSync(
-      binaryPath,
-      ["check", specFile, "--format", "json"],
-      {
-        encoding: "utf-8",
-        timeout: 10000,
-      },
-    );
+    binaryPath =
+      options.binaryPath ?? (await downloadScanner(version, options));
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "unknown";
+    return {
+      name: "Security Scan",
+      status: error instanceof ScannerSetupError ? "fail" : "warn",
+      details: [`Could not run injection-scanner: ${message}`],
+    };
+  }
 
-    const reports = JSON.parse(output) as Array<{
-      matches: Array<{
-        severity: string;
-        message: string;
-        pattern_id: string;
-        line: number;
-      }>;
-      critical_count: number;
-      high_count: number;
-    }>;
+  const notes: string[] = [];
+  const args = ["check", specFile, "--format", "json"];
 
+  if (!options.allowSuppressions) {
+    if (supportsNoSuppress(binaryPath)) {
+      args.push("--no-suppress");
+    } else {
+      notes.push(
+        `injection-scanner ${version} has no --no-suppress; in-file suppression ` +
+          `directives in ${specFile} were honoured. A contributor can disarm this ` +
+          `check from inside the pull request — pin a newer scanner to close that gap.`,
+      );
+    }
+  }
+
+  try {
+    const output = execFileSync(binaryPath, args, {
+      encoding: "utf-8",
+      timeout: 10_000,
+    });
+
+    const reports = JSON.parse(output) as ScannerReport[];
     const report = reports[0];
+
     if (!report || report.matches.length === 0) {
       return {
         name: "Security Scan",
         status: "pass",
-        details: ["No injection patterns detected"],
+        details: [...notes, "No injection patterns detected"],
       };
     }
-
-    const details = report.matches.map(
-      (m) => `${m.severity} :${m.line} ${m.message} (${m.pattern_id})`,
-    );
 
     return {
       name: "Security Scan",
       status: report.critical_count > 0 ? "fail" : "warn",
-      details,
+      details: [...notes, ...toDetails(report)],
     };
   } catch (error: unknown) {
     if (isExecError(error) && error.stdout) {
       try {
-        const reports = JSON.parse(error.stdout) as Array<{
-          matches: Array<{
-            severity: string;
-            message: string;
-            pattern_id: string;
-            line: number;
-          }>;
-          critical_count: number;
-        }>;
+        const reports = JSON.parse(error.stdout) as ScannerReport[];
         const report = reports[0];
-        const details =
-          report?.matches.map(
-            (m) => `${m.severity} :${m.line} ${m.message} (${m.pattern_id})`,
-          ) ?? [];
 
         return {
           name: "Security Scan",
           status: (report?.critical_count ?? 0) > 0 ? "fail" : "warn",
-          details,
+          details: [...notes, ...toDetails(report)],
         };
       } catch {
-        // parse failed
+        // Not JSON on stdout — fall through to the generic failure below.
       }
     }
 
@@ -103,7 +331,7 @@ export async function runInjectionScanner(
     return {
       name: "Security Scan",
       status: "warn",
-      details: [`Could not run injection-scanner: ${message}`],
+      details: [...notes, `Could not run injection-scanner: ${message}`],
     };
   }
 }

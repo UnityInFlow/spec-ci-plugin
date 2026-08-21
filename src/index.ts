@@ -2,7 +2,10 @@ import * as core from "@actions/core";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { runSpecLinter } from "./spec-linter.js";
-import { runInjectionScanner } from "./injection-scanner.js";
+import {
+  DEFAULT_SCANNER_VERSION,
+  runInjectionScanner,
+} from "./injection-scanner.js";
 import { extractDeclaredScope, checkScopeCompliance } from "./scope-checker.js";
 import {
   extractCriteria,
@@ -19,7 +22,8 @@ function getInputs(): ActionInputs {
     failOn: (core.getInput("fail-on") || "errors") as ActionInputs["failOn"],
     postComment: core.getInput("post-comment") !== "false",
     injectionScannerVersion:
-      core.getInput("injection-scanner-version") || "v0.0.1",
+      core.getInput("injection-scanner-version") || DEFAULT_SCANNER_VERSION,
+    allowSuppressions: core.getInput("allow-suppressions") === "true",
   };
 }
 
@@ -67,6 +71,7 @@ async function run(): Promise<void> {
     const scanResult = await runInjectionScanner(
       specPath,
       inputs.injectionScannerVersion,
+      { allowSuppressions: inputs.allowSuppressions },
     );
     core.info(`Security scan: ${scanResult.status}`);
 

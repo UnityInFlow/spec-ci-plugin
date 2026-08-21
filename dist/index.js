@@ -13324,7 +13324,7 @@ var require_fetch = __commonJS({
     function handleFetchDone(response) {
       finalizeAndReportTiming(response, "fetch");
     }
-    function fetch2(input, init = void 0) {
+    function fetch3(input, init = void 0) {
       webidl.argumentLengthCheck(arguments, 1, "globalThis.fetch");
       let p = createDeferredPromise();
       let requestObject;
@@ -14281,7 +14281,7 @@ var require_fetch = __commonJS({
       }
     }
     module2.exports = {
-      fetch: fetch2,
+      fetch: fetch3,
       Fetch,
       fetching,
       finalizeAndReportTiming
@@ -18539,7 +18539,7 @@ var require_undici = __commonJS({
     module2.exports.setGlobalDispatcher = setGlobalDispatcher;
     module2.exports.getGlobalDispatcher = getGlobalDispatcher;
     var fetchImpl = require_fetch().fetch;
-    module2.exports.fetch = async function fetch2(init, options = void 0) {
+    module2.exports.fetch = async function fetch3(init, options = void 0) {
       try {
         return await fetchImpl(init, options);
       } catch (err) {
@@ -20014,62 +20014,178 @@ async function runSpecLinter(specFile) {
 
 // src/injection-scanner.ts
 var import_node_child_process2 = require("child_process");
+var import_node_crypto = require("crypto");
 var import_node_fs = require("fs");
+var import_node_os = require("os");
 var import_node_path = require("path");
+var DEFAULT_SCANNER_VERSION = "v0.0.2";
+var MIN_SCANNER_VERSION = "v0.0.2";
+var RELEASE_BASE = "https://github.com/UnityInFlow/injection-scanner/releases/download";
+var CHECKSUM_MANIFEST = "SHA256SUMS.txt";
+var BINARY_NAME = "injection-scanner";
+var DOWNLOAD_TIMEOUT_MS = 6e4;
+var ScannerSetupError = class extends Error {
+};
 function isExecError2(err) {
   return typeof err === "object" && err !== null && "stdout" in err;
 }
-function downloadScanner(version) {
-  const platform2 = process.platform === "darwin" ? "apple-darwin" : "unknown-linux-musl";
-  const arch2 = process.arch === "arm64" ? "aarch64" : "x86_64";
-  const binaryName = "injection-scanner";
-  const downloadPath = (0, import_node_path.join)("/tmp", binaryName);
-  if ((0, import_node_fs.existsSync)(downloadPath)) return downloadPath;
-  const url = `https://github.com/UnityInFlow/injection-scanner/releases/download/${version}/${binaryName}-${arch2}-${platform2}`;
-  (0, import_node_child_process2.execSync)(`curl -fsSL -o "${downloadPath}" "${url}"`, { timeout: 3e4 });
-  (0, import_node_fs.chmodSync)(downloadPath, 493);
-  return downloadPath;
-}
-async function runInjectionScanner(specFile, version) {
-  try {
-    const binaryPath = downloadScanner(version);
-    const output = (0, import_node_child_process2.execFileSync)(
-      binaryPath,
-      ["check", specFile, "--format", "json"],
-      {
-        encoding: "utf-8",
-        timeout: 1e4
-      }
+function assertSupportedVersion(version) {
+  const parsed = version.match(
+    /^v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$/
+  );
+  if (!parsed) {
+    throw new ScannerSetupError(
+      `injection-scanner-version "${version}" is not a release tag (expected vMAJOR.MINOR.PATCH).`
     );
+  }
+  const requested = [Number(parsed[1]), Number(parsed[2]), Number(parsed[3])];
+  const minimum = MIN_SCANNER_VERSION.replace(/^v/, "").split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if (requested[i] > minimum[i]) return;
+    if (requested[i] < minimum[i]) {
+      throw new ScannerSetupError(
+        `injection-scanner ${version} is not supported: releases before ${MIN_SCANNER_VERSION} used a different asset naming scheme and published no ${CHECKSUM_MANIFEST}. Pin ${MIN_SCANNER_VERSION} or later.`
+      );
+    }
+  }
+}
+function assetNameFor(platform2 = process.platform, arch2 = process.arch) {
+  const os5 = platform2 === "darwin" ? "apple-darwin" : "unknown-linux-musl";
+  const cpu = arch2 === "arm64" ? "aarch64" : "x86_64";
+  return `${BINARY_NAME}-${cpu}-${os5}`;
+}
+function cachePathFor(version, asset, cacheDir = (0, import_node_os.tmpdir)()) {
+  return (0, import_node_path.join)(cacheDir, "unityinflow-injection-scanner", version, asset);
+}
+function parseChecksums(manifest) {
+  const sums = /* @__PURE__ */ new Map();
+  for (const line of manifest.split("\n")) {
+    const entry = line.trim().match(/^([0-9a-fA-F]{64})\s+\*?(\S+)$/);
+    if (entry) sums.set(entry[2], entry[1].toLowerCase());
+  }
+  return sums;
+}
+async function fetchAsset(fetchImpl, version, name) {
+  const url = `${RELEASE_BASE}/${version}/${name}`;
+  const response = await fetchImpl(url, {
+    signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)
+  });
+  if (!response.ok) {
+    throw new Error(
+      `GET ${url} returned ${response.status} ${response.statusText}`
+    );
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+async function downloadScanner(version, options = {}) {
+  assertSupportedVersion(version);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const asset = assetNameFor();
+  const cached = cachePathFor(version, asset, options.cacheDir);
+  if ((0, import_node_fs.existsSync)(cached)) return cached;
+  const [binary, manifest] = await Promise.all([
+    fetchAsset(fetchImpl, version, asset),
+    fetchAsset(fetchImpl, version, CHECKSUM_MANIFEST).then(
+      (buf) => buf.toString("utf-8")
+    )
+  ]);
+  const expected = parseChecksums(manifest).get(asset);
+  if (!expected) {
+    throw new ScannerSetupError(
+      `${CHECKSUM_MANIFEST} for ${version} does not list ${asset}; refusing to run an unverifiable binary.`
+    );
+  }
+  const actual = (0, import_node_crypto.createHash)("sha256").update(binary).digest("hex");
+  if (actual !== expected) {
+    throw new ScannerSetupError(
+      `checksum mismatch for ${asset} at ${version}: expected ${expected}, got ${actual}. Refusing to execute it.`
+    );
+  }
+  (0, import_node_fs.mkdirSync)((0, import_node_path.dirname)(cached), { recursive: true });
+  const staging = `${cached}.incoming-${process.pid}`;
+  try {
+    (0, import_node_fs.writeFileSync)(staging, binary);
+    (0, import_node_fs.chmodSync)(staging, 493);
+    (0, import_node_fs.renameSync)(staging, cached);
+  } catch (error2) {
+    (0, import_node_fs.rmSync)(staging, { force: true });
+    throw error2;
+  }
+  return cached;
+}
+var noSuppressSupport = /* @__PURE__ */ new Map();
+function supportsNoSuppress(binaryPath) {
+  const known = noSuppressSupport.get(binaryPath);
+  if (known !== void 0) return known;
+  let supported = false;
+  try {
+    const help = (0, import_node_child_process2.execFileSync)(binaryPath, ["check", "--help"], {
+      encoding: "utf-8",
+      timeout: 1e4
+    });
+    supported = help.includes("--no-suppress");
+  } catch {
+    supported = false;
+  }
+  noSuppressSupport.set(binaryPath, supported);
+  return supported;
+}
+function toDetails(report) {
+  return report?.matches.map(
+    (m) => `${m.severity} :${m.line} ${m.message} (${m.pattern_id})`
+  ) ?? [];
+}
+async function runInjectionScanner(specFile, version = DEFAULT_SCANNER_VERSION, options = {}) {
+  let binaryPath;
+  try {
+    binaryPath = options.binaryPath ?? await downloadScanner(version, options);
+  } catch (error2) {
+    const message = error2 instanceof Error ? error2.message : "unknown";
+    return {
+      name: "Security Scan",
+      status: error2 instanceof ScannerSetupError ? "fail" : "warn",
+      details: [`Could not run injection-scanner: ${message}`]
+    };
+  }
+  const notes = [];
+  const args = ["check", specFile, "--format", "json"];
+  if (!options.allowSuppressions) {
+    if (supportsNoSuppress(binaryPath)) {
+      args.push("--no-suppress");
+    } else {
+      notes.push(
+        `injection-scanner ${version} has no --no-suppress; in-file suppression directives in ${specFile} were honoured. A contributor can disarm this check from inside the pull request \u2014 pin a newer scanner to close that gap.`
+      );
+    }
+  }
+  try {
+    const output = (0, import_node_child_process2.execFileSync)(binaryPath, args, {
+      encoding: "utf-8",
+      timeout: 1e4
+    });
     const reports = JSON.parse(output);
     const report = reports[0];
     if (!report || report.matches.length === 0) {
       return {
         name: "Security Scan",
         status: "pass",
-        details: ["No injection patterns detected"]
+        details: [...notes, "No injection patterns detected"]
       };
     }
-    const details = report.matches.map(
-      (m) => `${m.severity} :${m.line} ${m.message} (${m.pattern_id})`
-    );
     return {
       name: "Security Scan",
       status: report.critical_count > 0 ? "fail" : "warn",
-      details
+      details: [...notes, ...toDetails(report)]
     };
   } catch (error2) {
     if (isExecError2(error2) && error2.stdout) {
       try {
         const reports = JSON.parse(error2.stdout);
         const report = reports[0];
-        const details = report?.matches.map(
-          (m) => `${m.severity} :${m.line} ${m.message} (${m.pattern_id})`
-        ) ?? [];
         return {
           name: "Security Scan",
           status: (report?.critical_count ?? 0) > 0 ? "fail" : "warn",
-          details
+          details: [...notes, ...toDetails(report)]
         };
       } catch {
       }
@@ -20078,7 +20194,7 @@ async function runInjectionScanner(specFile, version) {
     return {
       name: "Security Scan",
       status: "warn",
-      details: [`Could not run injection-scanner: ${message}`]
+      details: [...notes, `Could not run injection-scanner: ${message}`]
     };
   }
 }
@@ -20949,8 +21065,8 @@ function isPlainObject2(value) {
 }
 var noop = () => "";
 async function fetchWrapper(requestOptions) {
-  const fetch2 = requestOptions.request?.fetch || globalThis.fetch;
-  if (!fetch2) {
+  const fetch3 = requestOptions.request?.fetch || globalThis.fetch;
+  if (!fetch3) {
     throw new Error(
       "fetch is not set. Please pass a fetch implementation as new Octokit({ request: { fetch }}). Learn more at https://github.com/octokit/octokit.js/#fetch-missing"
     );
@@ -20966,7 +21082,7 @@ async function fetchWrapper(requestOptions) {
   );
   let fetchResponse;
   try {
-    fetchResponse = await fetch2(requestOptions.url, {
+    fetchResponse = await fetch3(requestOptions.url, {
       method: requestOptions.method,
       body,
       redirect: requestOptions.request?.redirect,
@@ -24027,7 +24143,8 @@ function getInputs() {
     specFile: getInput("spec-file") || "CLAUDE.md",
     failOn: getInput("fail-on") || "errors",
     postComment: getInput("post-comment") !== "false",
-    injectionScannerVersion: getInput("injection-scanner-version") || "v0.0.1"
+    injectionScannerVersion: getInput("injection-scanner-version") || DEFAULT_SCANNER_VERSION,
+    allowSuppressions: getInput("allow-suppressions") === "true"
   };
 }
 function findTestFiles(dir) {
@@ -24063,7 +24180,8 @@ async function run() {
     info(`Spec validation: ${specResult.status}`);
     const scanResult = await runInjectionScanner(
       specPath,
-      inputs.injectionScannerVersion
+      inputs.injectionScannerVersion,
+      { allowSuppressions: inputs.allowSuppressions }
     );
     info(`Security scan: ${scanResult.status}`);
     const token = getInput("github-token") || process.env.GITHUB_TOKEN || "";
