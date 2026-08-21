@@ -3,6 +3,7 @@ export interface ActionInputs {
   failOn: "errors" | "warnings" | "never";
   postComment: boolean;
   injectionScannerVersion: string;
+  allowSuppressions: boolean;
 }
 
 export type CheckStatus = "pass" | "warn" | "fail";
