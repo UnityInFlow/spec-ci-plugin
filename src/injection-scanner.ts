@@ -39,6 +39,18 @@ const BINARY_NAME = "injection-scanner";
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 
 /**
+ * Cap on the scanner's JSON output.
+ *
+ * Node's default for `execFileSync` is 1MB, and exceeding it throws `ENOBUFS`
+ * with stdout truncated — which lands in the catch below as an unparseable
+ * report. The file being scanned is written by the adversary, so they choose
+ * how many findings it contains: ~25 dense lines is enough to pass 1MB and turn
+ * a `fail` into a skipped check. Raised far past anything a real report reaches,
+ * and a report that still does not parse now fails rather than warns.
+ */
+const MAX_REPORT_BYTES = 128 * 1024 * 1024;
+
+/**
  * Raised when the scanner cannot be obtained *for a reason that will not fix
  * itself* — a bad pin, or bytes that do not match the published digest. These
  * fail the check. A transient network error is different: it warns.
@@ -66,13 +78,36 @@ export interface InjectionScannerOptions extends DownloadOptions {
   binaryPath?: string;
 }
 
+interface ScannerFinding {
+  severity: string;
+  message: string;
+  pattern_id: string;
+  line: number;
+}
+
+/**
+ * A withheld finding.
+ *
+ * Deliberately NOT `ScannerFinding`. The scanner emits a thinner record for
+ * suppressed findings than for reported ones — `pattern_id`, `severity`, `file`
+ * and `line`, with no `message`, `pattern_name`, `remediation` or
+ * `matched_text`. Treating the two arrays as one shape prints `undefined` into
+ * the pull-request comment.
+ */
+interface SuppressedFinding {
+  severity: string;
+  pattern_id: string;
+  line: number;
+  message?: string;
+}
+
 interface ScannerReport {
-  matches: Array<{
-    severity: string;
-    message: string;
-    pattern_id: string;
-    line: number;
-  }>;
+  matches: ScannerFinding[];
+  /**
+   * Findings the scanner withheld because the scanned file told it to
+   * (injection-scanner #55). Absent on releases that predate the field.
+   */
+  suppressed?: SuppressedFinding[];
   critical_count: number;
   high_count?: number;
 }
@@ -182,15 +217,10 @@ export async function downloadScanner(
   const fetchImpl = options.fetchImpl ?? fetch;
   const asset = assetNameFor();
   const cached = cachePathFor(version, asset, options.cacheDir);
-  if (existsSync(cached)) return cached;
 
-  const [binary, manifest] = await Promise.all([
-    fetchAsset(fetchImpl, version, asset),
-    fetchAsset(fetchImpl, version, CHECKSUM_MANIFEST).then((buf) =>
-      buf.toString("utf-8"),
-    ),
-  ]);
-
+  const manifest = await fetchAsset(fetchImpl, version, CHECKSUM_MANIFEST).then(
+    (buf) => buf.toString("utf-8"),
+  );
   const expected = parseChecksums(manifest).get(asset);
   if (!expected) {
     throw new ScannerSetupError(
@@ -198,6 +228,27 @@ export async function downloadScanner(
     );
   }
 
+  // A cache hit is not a reason to skip verification. The cache lives in the
+  // system temp directory, which on a self-hosted runner persists between jobs
+  // and is writable by anything else running there — the same property that made
+  // the unversioned cache path a defect in the first place. Verifying only on
+  // download would mean the integrity check holds for the first run of a given
+  // version and no other. Re-hashing costs milliseconds; the manifest is a few
+  // hundred bytes. Only the multi-megabyte binary is actually cached.
+  if (existsSync(cached)) {
+    const onDisk = createHash("sha256")
+      .update(readFileSync(cached))
+      .digest("hex");
+    if (onDisk === expected) return cached;
+    rmSync(cached, { force: true });
+    throw new ScannerSetupError(
+      `checksum mismatch for the cached ${asset} at ${version}: ${CHECKSUM_MANIFEST} ` +
+        `says ${expected}, the cached file hashes to ${onDisk}. The cache entry has been ` +
+        `discarded; refusing to execute it.`,
+    );
+  }
+
+  const binary = await fetchAsset(fetchImpl, version, asset);
   const actual = createHash("sha256").update(binary).digest("hex");
   if (actual !== expected) {
     throw new ScannerSetupError(
@@ -247,12 +298,33 @@ export function supportsNoSuppress(binaryPath: string): boolean {
   return supported;
 }
 
+function describe(finding: ScannerFinding): string {
+  return `${finding.severity} :${finding.line} ${finding.message} (${finding.pattern_id})`;
+}
+
 function toDetails(report: ScannerReport | undefined): string[] {
-  return (
-    report?.matches.map(
-      (m) => `${m.severity} :${m.line} ${m.message} (${m.pattern_id})`,
-    ) ?? []
-  );
+  return report?.matches.map(describe) ?? [];
+}
+
+/**
+ * Report what the scanned file told the scanner to hide.
+ *
+ * Only reachable when suppressions are honoured, i.e. `allow-suppressions: true`.
+ * Without this the consumer prints "No injection patterns detected" for a file
+ * that suppressed a CRITICAL finding — which discards precisely the visibility
+ * injection-scanner #55 exists to provide.
+ */
+function suppressedNotes(report: ScannerReport | undefined): string[] {
+  const suppressed = report?.suppressed ?? [];
+  if (suppressed.length === 0) return [];
+  return [
+    `${suppressed.length} finding(s) suppressed by directives inside the scanned file:`,
+    ...suppressed.map(
+      (finding) =>
+        `  suppressed ${finding.severity} :${finding.line} ` +
+        `${finding.message ?? "withheld by an in-file directive"} (${finding.pattern_id})`,
+    ),
+  ];
 }
 
 export async function runInjectionScanner(
@@ -292,23 +364,29 @@ export async function runInjectionScanner(
     const output = execFileSync(binaryPath, args, {
       encoding: "utf-8",
       timeout: 10_000,
+      maxBuffer: MAX_REPORT_BYTES,
     });
 
     const reports = JSON.parse(output) as ScannerReport[];
     const report = reports[0];
 
+    const withheld = suppressedNotes(report);
+
     if (!report || report.matches.length === 0) {
       return {
         name: "Security Scan",
         status: "pass",
-        details: [...notes, "No injection patterns detected"],
+        details:
+          withheld.length > 0
+            ? [...notes, ...withheld]
+            : [...notes, "No injection patterns detected"],
       };
     }
 
     return {
       name: "Security Scan",
       status: report.critical_count > 0 ? "fail" : "warn",
-      details: [...notes, ...toDetails(report)],
+      details: [...notes, ...toDetails(report), ...withheld],
     };
   } catch (error: unknown) {
     if (isExecError(error) && error.stdout) {
@@ -319,19 +397,28 @@ export async function runInjectionScanner(
         return {
           name: "Security Scan",
           status: (report?.critical_count ?? 0) > 0 ? "fail" : "warn",
-          details: [...notes, ...toDetails(report)],
+          details: [...notes, ...toDetails(report), ...suppressedNotes(report)],
         };
       } catch {
-        // Not JSON on stdout — fall through to the generic failure below.
+        // Not JSON on stdout — fall through to the failure below.
       }
     }
 
     const message = error instanceof Error ? error.message : "unknown";
 
+    // The scanner was verified and present, and still did not produce a report
+    // we can read. That is not the same as "the scanner was unavailable": the
+    // file under scan is adversary-controlled, so an unanswered scan must not
+    // read as a passing one. Acquisition failures are graded above, where a
+    // genuine outage still warns rather than blocking every pull request.
     return {
       name: "Security Scan",
-      status: "warn",
-      details: [...notes, `Could not run injection-scanner: ${message}`],
+      status: "fail",
+      details: [
+        ...notes,
+        `injection-scanner produced no usable report: ${message}. Treating this as a ` +
+          `failure — the scanned file is untrusted, so an unanswered scan is not a pass.`,
+      ],
     };
   }
 }
