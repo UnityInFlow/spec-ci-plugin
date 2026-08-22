@@ -10,9 +10,28 @@
 # releases. Only the `vX.Y.Z` Release (created by the human via the Releases UI)
 # is a real Release object.
 #
-# Secret-bearing / self-hosted by design: fork PRs cannot fire `release:
-# published`, so the org self-hosted runners are never exposed to untrusted
-# fork code (D-02).
+# RUNNER: GitHub-hosted, and that is deliberate.
+#
+# This job was `runs-on: [arc-runner-unityinflow]`, which could never run. Two
+# independent reasons, either one fatal:
+#
+#   1. This repo is PUBLIC and the org runner group enforces
+#      `allows_public_repositories: false`. No self-hosted job can be scheduled
+#      here AT ALL, whatever the trigger. The old comment reasoned only about
+#      fork exposure, which is a different constraint and does not save it.
+#   2. `arc-runner-unityinflow` matches zero registered runners (OPS-01 D-03).
+#
+# The consequence was not a loud failure. `v1` simply stopped moving after it
+# was set by hand at v1.0.0, so every consumer pinning `@v1` kept executing the
+# dist from that commit -- including, until this is fixed and v1 is moved, a
+# download path with no checksum verification and a fixed unversioned
+# `/tmp/injection-scanner` cache that `existsSync` returns without re-checking.
+# On a persistent runner anything able to write /tmp gets executed.
+#
+# Same exception injection-scanner was granted in August 2026 (issue #45), for
+# the same reason and with the same safety argument: this workflow uses NO org
+# secret -- only the built-in GITHUB_TOKEN -- and `release: published` cannot be
+# fired by a fork, which is what makes `contents: write` acceptable here.
 
 name: Release
 
@@ -22,14 +41,14 @@ on:
 
 jobs:
   move-major-tag:
-    # Org self-hosted X64 runners. Fallback to [orangepi] (ARM64) when the
-    # Hetzner X64 fleet is offline — JVM/tag work is arch-independent
-    # (RESEARCH Pitfall 4).
-    runs-on: [arc-runner-unityinflow]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      # SHA-pinned: this job holds `contents: write` and force-pushes a tag
+      # consumers execute. A floating tag here is the one place a compromised
+      # action upstream would matter most.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
