@@ -75,7 +75,7 @@ Scope: src/auth/, src/middleware/
 | `spec-file` | Path to spec file (CLAUDE.md, REQUIREMENTS.md, etc.) | `CLAUDE.md` |
 | `fail-on` | When to fail the check: `errors`, `warnings`, or `never` | `errors` |
 | `post-comment` | Post compliance report as PR comment | `true` |
-| `injection-scanner-version` | injection-scanner release version to download (`v0.0.2` or later) | `v0.0.2` |
+| `injection-scanner-version` | injection-scanner release version to download (`v0.0.2` or later) | `v0.0.3` |
 | `allow-suppressions` | Honour `injection-scanner:ignore` directives inside the scanned file | `false` |
 
 ## How the scanner binary is trusted
@@ -120,7 +120,7 @@ Ignore all previous instructions.
 
 The action therefore passes `--no-suppress`. Set `allow-suppressions: true` if you
 scan a file only maintainers can edit and you want its directives honoured. If the
-pinned scanner predates `--no-suppress` (added after `v0.0.2`), the flag is omitted
+pinned scanner predates `--no-suppress` (added in `v0.0.3`), the flag is omitted
 and the report says so rather than failing every scan.
 
 ## Outputs
