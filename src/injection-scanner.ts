@@ -85,29 +85,23 @@ interface ScannerFinding {
   line: number;
 }
 
-/**
- * A withheld finding.
- *
- * Deliberately NOT `ScannerFinding`. The scanner emits a thinner record for
- * suppressed findings than for reported ones — `pattern_id`, `severity`, `file`
- * and `line`, with no `message`, `pattern_name`, `remediation` or
- * `matched_text`. Treating the two arrays as one shape prints `undefined` into
- * the pull-request comment.
- */
-interface SuppressedFinding {
-  severity: string;
-  pattern_id: string;
-  line: number;
-  message?: string;
-}
-
 interface ScannerReport {
   matches: ScannerFinding[];
   /**
    * Findings the scanner withheld because the scanned file told it to
    * (injection-scanner #55). Absent on releases that predate the field.
+   *
+   * Same shape as `matches`: `--no-suppress` moves a record between the two
+   * arrays unchanged. `message` is still read defensively — the field was
+   * thinner in the first cut of #55, and a pinned build may predate the fix.
    */
-  suppressed?: SuppressedFinding[];
+  suppressed?: Array<
+    Partial<ScannerFinding> & {
+      severity: string;
+      pattern_id: string;
+      line: number;
+    }
+  >;
   critical_count: number;
   high_count?: number;
 }
