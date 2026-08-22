@@ -19,8 +19,14 @@ import { CheckResult } from "./types.js";
  * pins all three together, because they had silently drifted apart
  * (`action.yml` said v0.0.2, the code said v0.0.1) and the older default built
  * a URL that could not exist.
+ *
+ * v0.0.3 is the first release where the scanner is case-insensitive by
+ * default, so `Ignore all previous instructions` in sentence case is actually
+ * detected; on v0.0.2 that payload walked past 25 of the 30 patterns. It is
+ * also the first release carrying `--no-suppress`, which this Action probes
+ * for and passes when scanning pull requests.
  */
-export const DEFAULT_SCANNER_VERSION = "v0.0.2";
+export const DEFAULT_SCANNER_VERSION = "v0.0.3";
 
 /**
  * The oldest release this Action can consume.
