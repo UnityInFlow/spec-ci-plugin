@@ -23,7 +23,7 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      - uses: UnityInFlow/spec-ci-plugin@v0.0.1
+      - uses: UnityInFlow/spec-ci-plugin@v1
         with:
           spec-file: CLAUDE.md
           fail-on: errors
@@ -167,7 +167,7 @@ GSD-style `<files>` tags are also supported for scope declaration.
 ### Fail on warnings
 
 ```yaml
-- uses: UnityInFlow/spec-ci-plugin@v0.0.1
+- uses: UnityInFlow/spec-ci-plugin@v1
   with:
     fail-on: warnings
 ```
@@ -175,7 +175,7 @@ GSD-style `<files>` tags are also supported for scope declaration.
 ### Custom spec file
 
 ```yaml
-- uses: UnityInFlow/spec-ci-plugin@v0.0.1
+- uses: UnityInFlow/spec-ci-plugin@v1
   with:
     spec-file: REQUIREMENTS.md
 ```
@@ -183,7 +183,7 @@ GSD-style `<files>` tags are also supported for scope declaration.
 ### Skip PR comment
 
 ```yaml
-- uses: UnityInFlow/spec-ci-plugin@v0.0.1
+- uses: UnityInFlow/spec-ci-plugin@v1
   with:
     post-comment: "false"
 ```
@@ -191,7 +191,7 @@ GSD-style `<files>` tags are also supported for scope declaration.
 ### Use output in subsequent steps
 
 ```yaml
-- uses: UnityInFlow/spec-ci-plugin@v0.0.1
+- uses: UnityInFlow/spec-ci-plugin@v1
   id: spec-check
   with:
     fail-on: never
