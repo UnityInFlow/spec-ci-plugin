@@ -39,6 +39,22 @@ on:
   release:
     types: [published]
 
+  # Manual move, for the gap this workflow cannot close on its own: it fires
+  # only on `release: published`, so between a fix landing on `main` and the
+  # next release being cut, `v1` still points at whatever it pointed at before.
+  # That gap is exactly how `v1` came to sit four commits behind — and, until it
+  # is moved, on a download path with no checksum verification.
+  #
+  # Doing it here rather than by hand means the move runs the same audited
+  # script, is logged against a workflow run, and requires repo write access
+  # rather than someone's local git credentials.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Immutable release tag to point the major tag at (e.g. v1.0.0)"
+        required: true
+        type: string
+
 jobs:
   move-major-tag:
     runs-on: ubuntu-latest
@@ -52,14 +68,44 @@ jobs:
         with:
           fetch-depth: 0
 
+      # `v1` is a MOVING tag by design -- force-push is the mechanism, not a
+      # mistake, and a future reviewer should not "fix" it. Consumers who pin a
+      # SHA or an immutable `vX.Y.Z` are unaffected by this; only `@v1`
+      # consumers move forward, which is the entire point of publishing a major
+      # alias to the Marketplace.
       - name: Move major-version tag (vN -> vX.Y.Z)
+        env:
+          # Passed through the environment, never interpolated into the script.
+          DISPATCH_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF##refs/tags/}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAG="${DISPATCH_TAG}"
+          else
+            TAG="${GITHUB_REF##refs/tags/}"
+          fi
+
+          # Validated even though only write-access users can dispatch: this
+          # value is force-pushed as a ref, and a typo here moves the tag every
+          # consumer executes.
+          if ! printf '%s' "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::\"$TAG\" is not an immutable release tag (expected vMAJOR.MINOR.PATCH)."
+            exit 1
+          fi
+          if ! git rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null; then
+            echo "::error::tag $TAG does not exist in this repository."
+            exit 1
+          fi
+
           MAJOR="${TAG%%.*}"
           echo "Published tag: $TAG"
           echo "Moving major tag: $MAJOR -> $TAG"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -fa "$MAJOR" -m "Update $MAJOR -> $TAG"
+          # Target named explicitly. `git tag -fa "$MAJOR"` alone tags HEAD, which
+          # is only the right commit because `release: published` happens to
+          # check out the tag. On workflow_dispatch the checkout is the default
+          # branch, so that form would have pointed the major tag at main's HEAD
+          # instead of the release being requested.
+          git tag -fa "$MAJOR" "$TAG^{commit}" -m "Update $MAJOR -> $TAG"
           git push origin "$MAJOR" --force
