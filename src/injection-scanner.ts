@@ -20,13 +20,18 @@ import { CheckResult } from "./types.js";
  * (`action.yml` said v0.0.2, the code said v0.0.1) and the older default built
  * a URL that could not exist.
  *
- * v0.0.3 is the first release where the scanner is case-insensitive by
- * default, so `Ignore all previous instructions` in sentence case is actually
- * detected; on v0.0.2 that payload walked past 25 of the 30 patterns. It is
- * also the first release carrying `--no-suppress`, which this Action probes
- * for and passes when scanning pull requests.
+ * v0.1.0 is the first release whose detection recall is measured and
+ * published: 56/60 against a corpus written from the threat model rather than
+ * from the scanner's own patterns, up from 10/60 in v0.0.3. Four of the five
+ * attack categories were rewritten from lists of literal phrases into
+ * matrices, so a paraphrased payload is caught rather than walked past — which
+ * is the difference between this Action gating a PR and rubber-stamping it.
+ *
+ * v0.0.3 stays the floor for `--no-suppress`, which this Action probes for and
+ * passes when scanning pull requests, and was the first case-insensitive
+ * release; on v0.0.2 a sentence-case payload walked past 25 of the 30 patterns.
  */
-export const DEFAULT_SCANNER_VERSION = "v0.0.3";
+export const DEFAULT_SCANNER_VERSION = "v0.1.0";
 
 /**
  * The oldest release this Action can consume.

@@ -22,7 +22,7 @@ inputs:
   injection-scanner-version:
     description: "injection-scanner release version to download (v0.0.2 or later; the binary is SHA256-verified against the release manifest before it runs)"
     required: false
-    default: "v0.0.3"
+    default: "v0.1.0"
   allow-suppressions:
     description: "Honour injection-scanner:ignore directives found inside the scanned file. Off by default: this Action scans pull requests, so the file's author is the party the scan is meant to catch."
     required: false
