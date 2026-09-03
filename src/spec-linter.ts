@@ -1,5 +1,19 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { CheckResult } from "./types.js";
+
+/**
+ * The spec-linter release this Action runs, pinned.
+ *
+ * It used to be `npx --yes @unityinflow/spec-linter`, resolved by the npm
+ * registry at run time: every pull request executed whatever the latest
+ * publish of that package was, on the runner, with the repository checked
+ * out. Two steps later the same Action refuses to run a scanner binary whose
+ * bytes do not match a published checksum. The linter deserved the same
+ * care; a pinned version is the closest npx gets to it, and moving the pin
+ * is now a reviewed change to this file rather than a publish nobody here
+ * sees.
+ */
+export const SPEC_LINTER_VERSION = "0.0.1";
 
 function isExecError(
   err: unknown,
@@ -9,8 +23,19 @@ function isExecError(
 
 export async function runSpecLinter(specFile: string): Promise<CheckResult> {
   try {
-    const output = execSync(
-      `npx --yes @unityinflow/spec-linter check "${specFile}" --format json`,
+    // execFileSync, not execSync: the path is an argument, not a fragment of
+    // shell, so a spec-file input containing a quote or a `$(` is a file that
+    // does not exist rather than a command that runs.
+    const output = execFileSync(
+      "npx",
+      [
+        "--yes",
+        `@unityinflow/spec-linter@${SPEC_LINTER_VERSION}`,
+        "check",
+        specFile,
+        "--format",
+        "json",
+      ],
       { encoding: "utf-8", timeout: 30000 },
     );
 
