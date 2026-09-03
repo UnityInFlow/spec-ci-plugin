@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { SPEC_LINTER_VERSION } from "../src/spec-linter.js";
+
+/**
+ * The linter is the one dependency this Action fetches and executes at run
+ * time without a checksum, so the pin is load-bearing and the README must
+ * tell the truth about it.
+ */
+describe("the pinned spec-linter version", () => {
+  const readme = readFileSync("README.md", "utf-8");
+
+  it("is an exact release, not a range or a tag", () => {
+    expect(SPEC_LINTER_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it("is the version the README says is run", () => {
+    expect(readme).toContain(`@unityinflow/spec-linter@${SPEC_LINTER_VERSION}`);
+  });
+});
 
 /**
  * The Action's own version, as distinct from the scanner version it downloads.

@@ -99,6 +99,14 @@ runs there — so the cached file is re-hashed against the manifest on every run
 mismatch discards it and fails. Only the multi-megabyte binary is cached; the manifest
 is a few hundred bytes and is always fetched.
 
+**The linter is pinned.** Step 1 runs `@unityinflow/spec-linter@0.0.1` through `npx`,
+at that exact version. It used to run whatever the npm registry served as latest, on
+every pull request, on the runner, with the repository checked out -- a publish to that
+package name was a code path into every consumer's CI that no one here reviewed. A pinned
+version is the closest `npx` gets to the checksum the scanner binary is held to; moving
+it is a reviewed change to `src/spec-linter.ts`. The path to the spec file is passed as
+an argument, never interpolated into a shell command.
+
 **An unanswered scan is a failure.** If the scanner is present and verified but does not
 return a report this action can read, the result is `fail`, not `warn`. The scanned file
 is written by the party the scan exists to catch, and a large enough report used to
