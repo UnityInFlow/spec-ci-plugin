@@ -1,13 +1,38 @@
 {
   "hooks": {
-    "postToolCall": [
-      { "command": ".claude/hooks/post-tool-call.sh" }
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-bash.sh"
+          }
+        ]
+      }
     ],
-    "preBash": [
-      { "command": ".claude/hooks/pre-bash.sh" }
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-tool-call.sh",
+            "timeout": 300
+          }
+        ]
+      }
     ],
-    "stop": [
-      { "command": ".claude/hooks/on-stop.sh" }
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/on-stop.sh",
+            "timeout": 900
+          }
+        ]
+      }
     ]
   }
 }

@@ -19954,13 +19954,22 @@ var import_node_path2 = require("path");
 
 // src/spec-linter.ts
 var import_node_child_process = require("child_process");
+var SPEC_LINTER_VERSION = "0.0.1";
 function isExecError(err) {
   return typeof err === "object" && err !== null && "stdout" in err;
 }
 async function runSpecLinter(specFile) {
   try {
-    const output = (0, import_node_child_process.execSync)(
-      `npx --yes @unityinflow/spec-linter check "${specFile}" --format json`,
+    const output = (0, import_node_child_process.execFileSync)(
+      "npx",
+      [
+        "--yes",
+        `@unityinflow/spec-linter@${SPEC_LINTER_VERSION}`,
+        "check",
+        specFile,
+        "--format",
+        "json"
+      ],
       { encoding: "utf-8", timeout: 3e4 }
     );
     const reports = JSON.parse(output);
