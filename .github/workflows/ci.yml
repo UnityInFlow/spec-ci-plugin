@@ -1,11 +1,10 @@
 # Public/fork-PR CI for spec-ci-plugin.
 #
-# DELIBERATE D-02 EXCEPTION: GitHub-hosted `ubuntu-latest`. Because this repo is
-# public and this job is secretless, fork PRs must NEVER reach the org
-# self-hosted runners. Running GitHub-hosted keeps the org runner group's
-# `allows_public_repositories: false` policy intact while still validating fork
-# PRs. This is NOT a violation of the "never ubuntu-latest" rule — it is the
-# explicit Marketplace public-repo carve-out (MKT-04).
+# RUNNER: GitHub-hosted `ubuntu-24.04` (fixed image, not `ubuntu-latest`).
+# This repo is public and the org runner group has
+# `allows_public_repositories: false`, so no self-hosted runner can serve it;
+# public UnityInFlow repos run on GitHub-hosted runners. This job is
+# secretless (`contents: read`), so fork PRs are safe here.
 #
 # `release.yml` is GitHub-hosted too, and for a stricter reason: under
 # `allows_public_repositories: false` a self-hosted job cannot be scheduled on
@@ -24,13 +23,13 @@ on:
 jobs:
   build-and-test:
     # D-02 exception (see top-of-file comment): GitHub-hosted, secretless.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: "20"
           cache: "npm"
